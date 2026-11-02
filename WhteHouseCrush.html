@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Super Nintendo White House Simulator (C++ WebAssembly / SNES 16-Bit)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;700&display=swap');
+    
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #020617;
+      font-family: 'Inter', system-ui, sans-serif;
+      user-select: none;
+    }
+
+    #canvas-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      image-rendering: pixelated;
+    }
+
+    /* Retro SNES Window Styling */
+    .snes-panel {
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(10px);
+      border: 3px solid #f59e0b;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), inset 0 0 15px rgba(245, 158, 11, 0.25);
+    }
+
+    .pixel-font {
+      font-family: 'Press Start 2P', monospace;
+    }
+
+    /* CRT Scanline Overlay Effect */
+    .scanlines {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.3) 50%
+      ), linear-gradient(
+        90deg,
+        rgba(255, 0, 0, 0.04),
+        rgba(0, 255, 0, 0.02),
+        rgba(0, 0, 255, 0.04)
+      );
+      background-size: 100% 4px, 6px 100%;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Code Modal Scrollbar */
+    pre::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    pre::-webkit-scrollbar-thumb {
+      background: rgba(245, 158, 11, 0.5);
+      border-radius: 4px;
+    }
+    pre::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.6);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 h-screen w-screen overflow-hidden flex">
+
+  <!-- Main Simulation Viewport -->
+  <div id="canvas-container" class="relative flex-1 h-full w-full">
+    <canvas id="gameCanvas"></canvas>
+    
+    <!-- CRT Scanline Effect Overlay -->
+    <div id="scanlineOverlay" class="scanlines"></div>
+
+    <!-- Top Floating Navigation Toolbar (English) -->
+    <div class="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-5 py-2.5 rounded-2xl snes-panel text-xs md:text-sm font-medium z-10">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-clock text-amber-400"></i>
+        <span id="timeDisplay" class="font-mono text-amber-300">00:00</span>
+      </div>
+      <div class="h-4 w-px bg-amber-500/30"></div>
+      <div class="flex items-center gap-2">
+        <i id="weatherIcon" class="fa-solid fa-sun text-yellow-400"></i>
+        <span id="weatherDisplay" class="text-slate-200">Daytime</span>
+      </div>
+      <div class="h-4 w-px bg-amber-500/30"></div>
+      
+      <!-- Developer Actions Menu -->
+      <div class="relative group">
+        <button class="hover:text-amber-300 transition flex items-center gap-1.5 text-xs bg-amber-500/20 hover:bg-amber-500/30 px-3 py-1.5 rounded-lg text-amber-300 border border-amber-500/40 pixel-font text-[10px]">
+          <i class="fa-solid fa-bolt text-amber-400"></i> DEV ACTIONS
+        </button>
+        <div class="absolute right-0 top-full mt-2 hidden group-hover:flex flex-col bg-slate-900/95 border-2 border-amber-500/50 rounded-xl p-2 shadow-2xl min-w-[220px] gap-1 z-30 backdrop-blur-xl">
+          <button onclick="triggerCameo()" class="text-left px-3 py-2 text-xs hover:bg-white/10 rounded-lg text-slate-200 transition flex items-center gap-2">
+            <i class="fa-solid fa-joint text-emerald-400"></i>Snoop & Eminem Cameo
+          </button>
+          <button onclick="triggerEndGame('defeat')" class="text-left px-3 py-2 text-xs hover:bg-red-500/20 text-red-300 rounded-lg transition flex items-center gap-2">
+            <i class="fa-solid fa-bomb text-red-400"></i>Trump Loss (Explosion)
+          </button>
+          <button onclick="triggerEndGame('victory')" class="text-left px-3 py-2 text-xs hover:bg-emerald-500/20 text-emerald-300 rounded-lg transition flex items-center gap-2">
+            <i class="fa-solid fa-trophy text-emerald-400"></i>Obama Win (Trash Bomb)
+          </button>
+          <button onclick="toggleRain()" class="text-left px-3 py-2 text-xs hover:bg-blue-500/20 text-blue-300 rounded-lg transition flex items-center gap-2">
+            <i class="fa-solid fa-cloud-rain text-blue-400"></i>Toggle Rain / Weather
+          </button>
+          <button onclick="toggleScanlines()" class="text-left px-3 py-2 text-xs hover:bg-purple-500/20 text-purple-300 rounded-lg transition flex items-center gap-2">
+            <i class="fa-solid fa-tv text-purple-400"></i>Toggle CRT Scanlines
+          </button>
+          <button onclick="clearCanvasArt()" class="text-left px-3 py-2 text-xs hover:bg-amber-500/20 text-amber-300 rounded-lg transition flex items-center gap-2">
+            <i class="fa-solid fa-soap text-amber-400"></i>Clean White House
+          </button>
+        </div>
+      </div>
+
+      <div class="h-4 w-px bg-amber-500/30"></div>
+      <button onclick="toggleCodeModal()" class="hover:text-cyan-300 transition flex items-center gap-1.5 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 px-3 py-1.5 rounded-lg border border-cyan-500/40 pixel-font text-[10px]">
+        <i class="fa-solid fa-code"></i> C++ / WASM
+      </button>
+    </div>
+
+    <!-- Drawer Toggle Button -->
+    <button id="drawerToggleBtn" onclick="toggleSidebar()" class="absolute top-4 left-4 z-20 snes-panel p-3.5 rounded-2xl hover:bg-white/10 transition duration-200 text-amber-400 shadow-xl">
+      <i class="fa-solid fa-toolbox text-xl"></i>
+    </button>
+
+    <!-- Sidebar Toolbar (English) -->
+    <div id="sidebar" class="absolute top-0 left-0 h-full w-84 snes-panel z-20 transform -translate-x-full transition-transform duration-300 ease-in-out p-6 flex flex-col justify-between shadow-2xl">
+      <div>
+        <div class="flex items-center justify-between border-b border-amber-500/30 pb-4 mb-6">
+          <div class="flex items-center gap-3">
+            <div class="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-lg">
+              <i class="fa-solid fa-gamepad text-xl"></i>
+            </div>
+            <div>
+              <h2 class="font-bold text-xs text-amber-400 pixel-font">SNES TOOLBELT</h2>
+              <p class="text-xs text-slate-400">White House Playground</p>
+            </div>
+          </div>
+          <button onclick="toggleSidebar()" class="text-slate-400 hover:text-white transition p-1">
+            <i class="fa-solid fa-xmark text-xl"></i>
+          </button>
+        </div>
+
+        <!-- Tool Selection List -->
+        <div class="space-y-3">
+          <!-- 6-Phase Bird Seed Tool -->
+          <button onclick="selectTool('birdseed')" id="btn-birdseed" class="tool-btn w-full flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition text-left group">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-300 group-hover:scale-110 transition">
+                <i class="fa-solid fa-wheat-awn text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold text-xs text-slate-100">1. Bird Seed (6 Phases)</h3>
+                <p class="text-[11px] text-slate-400">Scatter seed, attract pigeons & droppings</p>
+              </div>
+            </div>
+          </button>
+
+          <!-- Band-Aid Plaster Tool -->
+          <button onclick="selectTool('plaster')" id="btn-plaster" class="tool-btn w-full flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition text-left group">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-rose-500/20 flex items-center justify-center text-rose-300 group-hover:scale-110 transition">
+                <i class="fa-solid fa-bandage text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold text-xs text-slate-100">2. Apply Band-Aid</h3>
+                <p class="text-[11px] text-slate-400">Stick bandages onto facade</p>
+              </div>
+            </div>
+          </button>
+
+          <!-- Snowball Tool -->
+          <button onclick="selectTool('snowball')" id="btn-snowball" class="tool-btn w-full flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition text-left group">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-sky-500/20 flex items-center justify-center text-sky-300 group-hover:scale-110 transition">
+                <i class="fa-solid fa-snowflake text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold text-xs text-slate-100">3. Throw Snowball</h3>
+                <p class="text-[11px] text-slate-400">Splat snow & melting trails</p>
+              </div>
+            </div>
+          </button>
+
+          <!-- Dump Trash Can Tool -->
+          <button onclick="selectTool('trash')" id="btn-trash" class="tool-btn w-full flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition text-left group">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-300 group-hover:scale-110 transition">
+                <i class="fa-solid fa-trash-can-arrow-up text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold text-xs text-slate-100">4. Dump Trash Can</h3>
+                <p class="text-[11px] text-slate-400">Spill soda cans, burgers & docs</p>
+              </div>
+            </div>
+          </button>
+
+          <!-- Fluid Spray Paint Tool -->
+          <button onclick="selectTool('spray')" id="btn-spray" class="tool-btn w-full flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition text-left group">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-fuchsia-500/20 flex items-center justify-center text-fuchsia-300 group-hover:scale-110 transition">
+                <i class="fa-solid fa-spray-can text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold text-xs text-slate-100">5. Spray Paint</h3>
+                <p class="text-[11px] text-slate-400">16-bit graffiti spray nozzle</p>
+              </div>
+            </div>
+          </button>
+
+          <!-- Color Palette for Spray Paint -->
+          <div id="sprayColorPalette" class="hidden p-3 bg-black/60 rounded-xl border border-white/10 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-slate-300">Paint Color:</span>
+              <input type="color" id="sprayColorInput" value="#ec4899" onchange="setSprayColor(this.value)" class="w-8 h-8 rounded-lg cursor-pointer border-none bg-transparent">
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs text-slate-300">Nozzle Size:</span>
+              <input type="range" id="spraySizeInput" min="8" max="32" value="16" oninput="setSpraySize(this.value)" class="w-32 accent-fuchsia-500">
+            </div>
+          </div>
+
+          <!-- Yellow Slime Gun -->
+          <button onclick="selectTool('slime')" id="btn-slime" class="tool-btn w-full flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition text-left group">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center text-yellow-300 group-hover:scale-110 transition">
+                <i class="fa-solid fa-gun text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold text-xs text-slate-100">6. Slime Gun</h3>
+                <p class="text-[11px] text-slate-400">Physics-based dripping goo</p>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Controls & Status Footer -->
+      <div class="border-t border-amber-500/30 pt-4 space-y-3">
+        <div class="text-xs text-slate-400 bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
+          <p class="font-semibold text-amber-300 flex items-center gap-1.5"><i class="fa-solid fa-circle-info"></i> Instructions</p>
+          <p class="text-slate-300 text-[11px] leading-relaxed">Select tools and click/drag directly on the White House facade. Automatic events trigger over time.</p>
+        </div>
+        
+        <button onclick="clearCanvasArt()" class="w-full py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-broom"></i> Clean White House
+        </button>
+      </div>
+    </div>
+
+    <!-- Event Result Modal -->
+    <div id="endGameModal" class="hidden absolute inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+      <div class="snes-panel max-w-md w-full p-8 rounded-3xl text-center space-y-6 shadow-2xl relative border-4 border-amber-500">
+        <div id="modalIconContainer" class="w-20 h-20 mx-auto rounded-full flex items-center justify-center text-4xl shadow-inner">
+          <!-- Dynamic Icon -->
+        </div>
+        <div>
+          <h2 id="modalTitle" class="text-xl font-extrabold text-amber-400 pixel-font mb-3">GAME EVENT</h2>
+          <p id="modalDescription" class="text-slate-200 text-sm leading-relaxed"></p>
+        </div>
+        <button onclick="resetGame()" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-xl transition shadow-lg text-xs pixel-font">
+          PLAY AGAIN
+        </button>
+      </div>
+    </div>
+
+    <!-- C++ / WebAssembly Source Code Modal -->
+    <div id="codeModal" class="hidden absolute inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-4 md:p-8">
+      <div class="snes-panel w-full max-w-4xl h-[85vh] rounded-2xl border-4 border-cyan-500 flex flex-col overflow-hidden shadow-2xl">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-cyan-500/40 bg-slate-900/90">
+          <div class="flex items-center gap-3">
+            <i class="fa-solid fa-code text-cyan-400 text-lg"></i>
+            <div>
+              <h3 class="font-bold text-cyan-300 text-xs pixel-font">whitehouse_simulation.cpp</h3>
+              <p class="text-xs text-slate-400">Compiled C++ Simulation Engine (Emscripten / Wasm Target)</p>
+            </div>
+          </div>
+          <button onclick="toggleCodeModal()" class="text-slate-400 hover:text-white transition p-1">
+            <i class="fa-solid fa-xmark text-xl"></i>
+          </button>
+        </div>
+        <div class="flex-1 p-4 overflow-hidden bg-slate-950">
+          <pre id="cppCodeContainer" class="h-full overflow-auto font-mono text-xs text-cyan-300/90 leading-relaxed"></pre>
+        </div>
+        <div class="px-6 py-3 border-t border-cyan-500/40 bg-slate-900/90 flex items-center justify-between text-xs text-slate-400">
+          <span>Target Architecture: WASM32 / Emscripten C++20</span>
+          <button onclick="copyCppCode()" class="text-cyan-400 hover:text-cyan-300 transition flex items-center gap-1">
+            <i class="fa-solid fa-copy"></i> Copy Source Code
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ==========================================================================
+       Compilable C++ Source Code (Embedded for Wasm Modal)
+       ========================================================================== */
+    const cppSourceCode = `// whitehouse_simulation.cpp
+// Compile command: emcc whitehouse_simulation.cpp -O3 -s WASM=1 -s EXPORTED_RUNTIME_METHODS='["ccall"]' -o engine.js
+
+#include <emscripten.h>
+#include <cmath>
+#include <vector>
+#include <cstdlib>
+
+struct Particle {
+    float x, y;
+    float vx, vy;
+    float life;
+    uint32_t color;
+};
+
+struct SlimeBlob {
+    float x, y, radius, maxDrip, currentDrip, speed;
+};
+
+class SimulationEngine {
+public:
+    float gameTime = 0.0f;
+    bool isRaining = false;
+    std::vector<Particle> rainParticles;
+    std::vector<SlimeBlob> slimeBlobs;
+
+    SimulationEngine() {
+        for (int i = 0; i < 200; ++i) {
+            rainParticles.push_back({
+                (float)(rand() % 1920), (float)(rand() % 1080),
+                -1.0f, 12.0f + (rand() % 6), 1.0f, 0xBAE6FD
+            });
+        }
+    }
+
+    void tick(float dt) {
+        gameTime += dt;
+        for (auto& slime : slimeBlobs) {
+            if (slime.currentDrip < slime.maxDrip) {
+                slime.currentDrip += slime.speed * dt;
+            }
+        }
+        if (isRaining) {
+            for (auto& drop : rainParticles) {
+                drop.y += drop.vy;
+                drop.x += drop.vx;
+                if (drop.y > 1080.0f) {
+                    drop.y = -20.0f;
+                    drop.x = (float)(rand() % 1920);
+                }
+            }
+        }
+    }
+
+    void addSlime(float x, float y, float drip) {
+        slimeBlobs.push_back({x, y, 8.0f + (rand() % 8), drip, 15.0f + (rand() % 20), 0.0f});
+    }
+};
+
+static SimulationEngine g_Engine;
+
+extern "C" {
+    EMSCRIPTEN_KEEPALIVE void engine_tick(float dt) { g_Engine.tick(dt); }
+    EMSCRIPTEN_KEEPALIVE void engine_add_slime(float x, float y, float drip) { g_Engine.addSlime(x, y, drip); }
+    EMSCRIPTEN_KEEPALIVE void engine_toggle_rain() { g_Engine.isRaining = !g_Engine.isRaining; }
+}`;
+
+    /* ==========================================================================
+       Simulation Memory & Graphics Engine Architecture
+       ========================================================================== */
+    const WasmModule = {
+      activeTool: 'birdseed',
+      sprayColor: '#ec4899',
+      spraySize: 16,
+      isRaining: false,
+      gameTimeSeconds: 0,
+      cameoTriggered: false,
+      endGameTriggered: false,
+      
+      cameoTimeTarget: Math.floor(Math.random() * 300) + 300,
+      endGameTimeTarget: Math.floor(Math.random() * 600) + 900,
+      
+      // Entities
+      birdSeeds: [],
+      pigeons: [],
+      poopSplatters: [],
+      plasters: [],
+      snowballs: [],
+      slimeDrops: [],
+      graffitiStrokes: [],
+      trashItems: [],
+      isTrashOverturned: false,
+      rainParticles: [],
+      clouds: [],
+      cameoActors: [],
+      endGameActors: [],
+      explosions: []
+    };
+
+    let canvas, ctx;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      canvas = document.getElementById('gameCanvas');
+      ctx = canvas.getContext('2d');
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      document.getElementById('cppCodeContainer').textContent = cppSourceCode;
+
+      initClouds();
+      initRain();
+      selectTool('birdseed');
+      setupMouseEvents();
+
+      requestAnimationFrame(gameLoop);
+      setInterval(cppTickTimer, 1000);
+    });
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('-translate-x-full');
+    }
+
+    function toggleCodeModal() {
+      document.getElementById('codeModal').classList.toggle('hidden');
+    }
+
+    function toggleScanlines() {
+      document.getElementById('scanlineOverlay').classList.toggle('hidden');
+    }
+
+    function copyCppCode() {
+      navigator.clipboard.writeText(cppSourceCode);
+    }
+
+    function selectTool(toolName) {
+      WasmModule.activeTool = toolName;
+      document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.classList.remove('bg-amber-500/20', 'border-amber-400');
+      });
+      const activeBtn = document.getElementById(`btn-${toolName}`);
+      if (activeBtn) {
+        activeBtn.classList.add('bg-amber-500/20', 'border-amber-400');
+      }
+
+      const sprayPalette = document.getElementById('sprayColorPalette');
+      if (toolName === 'spray') {
+        sprayPalette.classList.remove('hidden');
+      } else {
+        sprayPalette.classList.add('hidden');
+      }
+    }
+
+    function setSprayColor(val) { WasmModule.sprayColor = val; }
+    function setSpraySize(val) { WasmModule.spraySize = parseInt(val); }
+    function toggleRain() { WasmModule.isRaining = !WasmModule.isRaining; }
+
+    function clearCanvasArt() {
+      WasmModule.birdSeeds = [];
+      WasmModule.pigeons = [];
+      WasmModule.poopSplatters = [];
+      WasmModule.plasters = [];
+      WasmModule.snowballs = [];
+      WasmModule.slimeDrops = [];
+      WasmModule.graffitiStrokes = [];
+      WasmModule.trashItems = [];
+      WasmModule.isTrashOverturned = false;
+    }
+
+    function cppTickTimer() {
+      if (WasmModule.endGameTriggered) return;
+
+      WasmModule.gameTimeSeconds++;
+      const mins = String(Math.floor(WasmModule.gameTimeSeconds / 60)).padStart(2, '0');
+      const secs = String(WasmModule.gameTimeSeconds % 60).padStart(2, '0');
+      document.getElementById('timeDisplay').innerText = `${mins}:${secs}`;
+
+      if (!WasmModule.cameoTriggered && WasmModule.gameTimeSeconds >= WasmModule.cameoTimeTarget) {
+        triggerCameo();
+      }
+
+      if (WasmModule.gameTimeSeconds >= WasmModule.endGameTimeTarget) {
+        const randomOutcome = Math.random() > 0.5 ? 'defeat' : 'victory';
+        triggerEndGame(randomOutcome);
+      }
+    }
+
+    let isMouseDown = false;
+
+    function setupMouseEvents() {
+      canvas.addEventListener('mousedown', (e) => {
+        isMouseDown = true;
+        handleInput(e.clientX, e.clientY);
+      });
+      canvas.addEventListener('mousemove', (e) => {
+        if (isMouseDown) handleInput(e.clientX, e.clientY);
+      });
+      window.addEventListener('mouseup', () => { isMouseDown = false; });
+
+      canvas.addEventListener('touchstart', (e) => {
+        isMouseDown = true;
+        const touch = e.touches[0];
+        handleInput(touch.clientX, touch.clientY);
+      }, { passive: true });
+      canvas.addEventListener('touchmove', (e) => {
+        if (isMouseDown) {
+          const touch = e.touches[0];
+          handleInput(touch.clientX, touch.clientY);
+        }
+      }, { passive: true });
+      window.addEventListener('touchend', () => { isMouseDown = false; });
+    }
+
+    function handleInput(x, y) {
+      if (WasmModule.endGameTriggered) return;
+      if (x < 330 && !document.getElementById('sidebar').classList.contains('-translate-x-full')) return;
+
+      switch (WasmModule.activeTool) {
+        case 'birdseed': start6PhaseBirdRoutine(x, y); break;
+        case 'plaster': applyPlaster(x, y); break;
+        case 'snowball': throwSnowball(x, y); break;
+        case 'trash': overturnTrashCan(); break;
+        case 'spray': addGraffitiPoint(x, y); break;
+        case 'slime': shootSlime(x, y); break;
+      }
+    }
+
+    function initClouds() {
+      WasmModule.clouds = [];
+      for (let i = 0; i < 6; i++) {
+        WasmModule.clouds.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * (canvas.height * 0.35),
+          speed: 0.2 + Math.random() * 0.3,
+          scale: 1 + Math.random() * 0.8
+        });
+      }
+    }
+
+    function initRain() {
+      WasmModule.rainParticles = [];
+      for (let i = 0; i < 200; i++) {
+        WasmModule.rainParticles.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          length: 12 + Math.random() * 8,
+          speed: 10 + Math.random() * 6
+        });
+      }
+    }
+
+    /* ==========================================================================
+       Interactive Tool Implementations & 6-Phase Bird Routine
+       ========================================================================== */
+    function start6PhaseBirdRoutine(x, y) {
+      // Phase 1: Scatter birdseed
+      for (let i = 0; i < 6; i++) {
+        WasmModule.birdSeeds.push({
+          x: x + (Math.random() - 0.5) * 40,
+          y: y + (Math.random() - 0.5) * 20,
+          eaten: false
+        });
+      }
+
+      // Phase 2: Pigeons fly in toward seed location
+      setTimeout(() => {
+        for (let i = 0; i < 4; i++) {
+          WasmModule.pigeons.push({
+            x: x + (Math.random() - 0.5) * 250 - 300,
+            y: y - 280 - Math.random() * 100,
+            targetX: x + (Math.random() - 0.5) * 50,
+            targetY: y + (Math.random() - 0.5) * 30,
+            phase: 2, // Phase 2: Fly to seed
+            timer: 0,
+            poopDropped: false
+          });
+        }
+      }, 500);
+    }
+
+    function applyPlaster(x, y) {
+      WasmModule.plasters.push({
+        x: x + (Math.random() - 0.5) * 10,
+        y: y + (Math.random() - 0.5) * 10,
+        rotation: (Math.random() - 0.5) * 0.8
+      });
+    }
+
+    function throwSnowball(x, y) {
+      WasmModule.snowballs.push({
+        x: x,
+        y: y,
+        radius: 12 + Math.random() * 8,
+        dripLength: 10 + Math.random() * 25
+      });
+    }
+
+    function overturnTrashCan() {
+      WasmModule.isTrashOverturned = true;
+      const canX = canvas.width - 140;
+      const groundY = canvas.height * 0.76;
+
+      if (WasmModule.trashItems.length < 40) {
+        const types = ['burger', 'can', 'paper', 'banana', 'pizza'];
+        for (let i = 0; i < 25; i++) {
+          WasmModule.trashItems.push({
+            x: canX - Math.random() * 220,
+            y: groundY + Math.random() * 50 - 15,
+            type: types[Math.floor(Math.random() * types.length)],
+            rotation: Math.random() * Math.PI * 2
+          });
+        }
+      }
+    }
+
+    function addGraffitiPoint(x, y) {
+      WasmModule.graffitiStrokes.push({
+        x: x + (Math.random() - 0.5) * 8,
+        y: y + (Math.random() - 0.5) * 8,
+        color: WasmModule.sprayColor,
+        size: WasmModule.spraySize
+      });
+    }
+
+    function shootSlime(x, y) {
+      for (let i = 0; i < 6; i++) {
+        WasmModule.slimeDrops.push({
+          x: x + (Math.random() - 0.5) * 24,
+          y: y + (Math.random() - 0.5) * 24,
+          radius: 8 + Math.random() * 10,
+          dripSpeed: 0.2 + Math.random() * 0.4,
+          maxDrip: 30 + Math.random() * 60,
+          dripped: 0
+        });
+      }
+    }
+
+    function triggerCameo() {
+      WasmModule.cameoTriggered = true;
+      WasmModule.cameoActors = [
+        { name: 'Snoop Dogg', x: -120, y: canvas.height * 0.74, speed: 1.4 },
+        { name: 'Eminem', x: -190, y: canvas.height * 0.74, speed: 1.4 }
+      ];
+    }
+
+    function triggerEndGame(outcome) {
+      if (WasmModule.endGameTriggered) return;
+      WasmModule.endGameTriggered = true;
+
+      const modal = document.getElementById('endGameModal');
+      const iconContainer = document.getElementById('modalIconContainer');
+      const title = document.getElementById('modalTitle');
+      const desc = document.getElementById('modalDescription');
+
+      if (outcome === 'defeat') {
+        WasmModule.endGameActors.push({
+          type: 'trump',
+          x: canvas.width * 0.5,
+          y: canvas.height * 0.74,
+          speed: 4.5
+        });
+
+        setTimeout(() => {
+          for (let i = 0; i < 45; i++) {
+            WasmModule.explosions.push({
+              x: canvas.width * 0.5 + (Math.random() - 0.5) * 500,
+              y: canvas.height * 0.45 + (Math.random() - 0.5) * 220,
+              radius: 35 + Math.random() * 65,
+              color: Math.random() > 0.4 ? '#f97316' : '#ef4444'
+            });
+          }
+
+          setTimeout(() => {
+            modal.classList.remove('hidden');
+            iconContainer.className = "w-20 h-20 mx-auto rounded-full flex items-center justify-center text-4xl bg-red-500/20 text-red-400 border-2 border-red-500 shadow-xl";
+            iconContainer.innerHTML = '<i class="fa-solid fa-burst"></i>';
+            title.innerText = "GAME OVER!";
+            desc.innerText = "Trump ran out screaming and the White House exploded! Simulation lost.";
+          }, 1500);
+        }, 1200);
+      } else {
+        WasmModule.endGameActors.push({
+          type: 'obama',
+          x: canvas.width * 0.5,
+          y: canvas.height * 0.74,
+          speed: 2.0,
+          hasBomb: true
+        });
+
+        setTimeout(() => {
+          WasmModule.explosions.push({
+            x: canvas.width - 140,
+            y: canvas.height * 0.75,
+            radius: 95,
+            color: '#1e293b'
+          });
+
+          for (let i = 0; i < 35; i++) {
+            WasmModule.graffitiStrokes.push({
+              x: canvas.width * 0.5 + (Math.random() - 0.5) * 500,
+              y: canvas.height * 0.45 + (Math.random() - 0.5) * 200,
+              color: '#0f172a',
+              size: 25 + Math.random() * 25
+            });
+          }
+
+          setTimeout(() => {
+            modal.classList.remove('hidden');
+            iconContainer.className = "w-20 h-20 mx-auto rounded-full flex items-center justify-center text-4xl bg-emerald-500/20 text-emerald-400 border-2 border-emerald-500 shadow-xl";
+            iconContainer.innerHTML = '<i class="fa-solid fa-trophy"></i>';
+            title.innerText = "VICTORY!";
+            desc.innerText = "Obama safely threw the bomb into the metal trash can! The White House is slightly scorched, but you won!";
+          }, 1800);
+        }, 2200);
+      }
+    }
+
+    function resetGame() {
+      WasmModule.gameTimeSeconds = 0;
+      WasmModule.cameoTriggered = false;
+      WasmModule.endGameTriggered = false;
+      WasmModule.cameoActors = [];
+      WasmModule.endGameActors = [];
+      WasmModule.explosions = [];
+      clearCanvasArt();
+      document.getElementById('endGameModal').classList.add('hidden');
+    }
+
+    /* ==========================================================================
+       16-Bit SNES Rendering Engine & Caricature Pixel Art
+       ========================================================================== */
+    function gameLoop() {
+      const dayCycleRatio = (Math.sin(WasmModule.gameTimeSeconds * 0.04) + 1) / 2;
+      const isNight = dayCycleRatio < 0.4;
+      
+      document.getElementById('weatherIcon').className = isNight ? 'fa-solid fa-moon text-indigo-300' : 'fa-solid fa-sun text-yellow-400';
+      document.getElementById('weatherDisplay').innerText = isNight ? 'Night Time' : 'Day Time';
+
+      // Sky Gradient
+      const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      if (isNight) {
+        skyGradient.addColorStop(0, '#020617');
+        skyGradient.addColorStop(0.6, '#0f172a');
+        skyGradient.addColorStop(1, '#1e1b4b');
+      } else {
+        skyGradient.addColorStop(0, '#0284c7');
+        skyGradient.addColorStop(0.5, '#38bdf8');
+        skyGradient.addColorStop(1, '#bae6fd');
+      }
+      ctx.fillStyle = skyGradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Celestial Sun / Moon
+      drawCelestialBody(isNight);
+
+      // Pixel Clouds
+      drawPixelClouds(isNight);
+
+      // 16-Bit SNES White House Architecture
+      drawSNESWhiteHouse(isNight);
+
+      // Interactive Decals & Layer Art
+      drawFacadeModifications();
+
+      // Overturned Trash Can & Detailed Waste Items
+      drawSNESTrashCan();
+
+      // Cameo Actors (Snoop Dogg & Eminem)
+      updateDrawCameos();
+
+      // End Game Scenario Actors
+      updateDrawEndGameEvents();
+
+      // Dynamic Weather Rain System
+      if (WasmModule.isRaining) {
+        ctx.strokeStyle = 'rgba(186, 230, 253, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        WasmModule.rainParticles.forEach(p => {
+          p.y += p.speed;
+          p.x -= 2;
+          if (p.y > canvas.height) {
+            p.y = -p.length;
+            p.x = Math.random() * canvas.width;
+          }
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(p.x - 4, p.y + p.length);
+        });
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(0, canvas.height * 0.72, canvas.width, canvas.height * 0.28);
+      }
+
+      // Update 6-Phase Pigeons Engine
+      updateDraw6PhasePigeons();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function drawCelestialBody(isNight) {
+      const cx = canvas.width * 0.82;
+      const cy = canvas.height * 0.18;
+      
+      ctx.save();
+      ctx.fillStyle = isNight ? '#f1f5f9' : '#fef08a';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 32, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (isNight) {
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.4)';
+        ctx.fillRect(cx - 12, cy - 8, 10, 10);
+        ctx.fillRect(cx + 6, cy + 6, 12, 12);
+      }
+      ctx.restore();
+    }
+
+    function drawPixelClouds(isNight) {
+      ctx.save();
+      WasmModule.clouds.forEach(cloud => {
+        cloud.x += cloud.speed;
+        if (cloud.x > canvas.width + 200) cloud.x = -200;
+
+        ctx.fillStyle = isNight ? 'rgba(255, 255, 255, 0.15)' : '#ffffff';
+        const s = cloud.scale * 10;
+        const x = cloud.x;
+        const y = cloud.y;
+
+        ctx.fillRect(x, y, s * 8, s * 3);
+        ctx.fillRect(x + s * 2, y - s * 2, s * 5, s * 2);
+        ctx.fillRect(x + s * 4, y - s * 3, s * 3, s * 1);
+      });
+      ctx.restore();
+    }
+
+    /* ==========================================================================
+       Detailed 16-Bit SNES White House Architecture & Animated USA Flag
+       ========================================================================== */
+    function drawSNESWhiteHouse(isNight) {
+      const w = canvas.width;
+      const h = canvas.height;
+      const centerX = w * 0.5;
+      const groundY = h * 0.76;
+
+      // Lawn with SNES Dithering
+      ctx.fillStyle = isNight ? '#064e3b' : '#15803d';
+      ctx.fillRect(0, groundY, w, h - groundY);
+      
+      ctx.fillStyle = isNight ? '#022c22' : '#166534';
+      for (let y = groundY; y < h; y += 8) {
+        for (let x = (y % 16 === 0 ? 0 : 8); x < w; x += 16) {
+          ctx.fillRect(x, y, 8, 4);
+        }
+      }
+
+      const houseWidth = Math.min(w * 0.65, 850);
+      const houseHeight = 300;
+      const houseX = centerX - houseWidth * 0.5;
+      const houseY = groundY - houseHeight;
+
+      // Shadow base
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(houseX - 10, groundY - 10, houseWidth + 20, 20);
+
+      // Main Facade Structure
+      ctx.fillStyle = isNight ? '#cbd5e1' : '#f8fafc';
+      ctx.fillRect(houseX, houseY, houseWidth, houseHeight);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(houseX, houseY, houseWidth, houseHeight);
+
+      // Windows
+      const cols = 9;
+      const rows = 3;
+      const colWidth = houseWidth / (cols + 1);
+      const rowHeight = houseHeight / (rows + 1);
+
+      for (let r = 1; r <= rows; r++) {
+        for (let c = 1; c <= cols; c++) {
+          const wx = houseX + c * colWidth - 16;
+          const wy = houseY + r * rowHeight - 20;
+
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(wx - 2, wy - 2, 36, 48);
+
+          ctx.fillStyle = isNight ? (Math.random() > 0.2 ? '#fbbf24' : '#0f172a') : '#38bdf8';
+          ctx.fillRect(wx, wy, 32, 44);
+
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(wx + 14, wy, 4, 44);
+          ctx.fillRect(wx, wy + 20, 32, 4);
+        }
+      }
+
+      // Center Portico & Columns
+      const porticoWidth = houseWidth * 0.32;
+      const porticoX = centerX - porticoWidth * 0.5;
+
+      ctx.fillStyle = '#f1f5f9';
+      ctx.fillRect(porticoX, houseY - 30, porticoWidth, houseHeight + 30);
+
+      // Columns
+      const numCols = 6;
+      const colSpacing = porticoWidth / (numCols - 1);
+      for (let i = 0; i < numCols; i++) {
+        const cx = porticoX + i * colSpacing;
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillRect(cx - 8, houseY - 20, 16, houseHeight + 20);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(cx - 5, houseY - 20, 6, houseHeight + 20);
+      }
+
+      // Triangular Pediment Gable
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(porticoX - 20, houseY - 30);
+      ctx.lineTo(centerX, houseY - 85);
+      ctx.lineTo(porticoX + porticoWidth + 20, houseY - 30);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // USA Flag Pole & Animated Fluttering Flag
+      const flagPoleX = centerX;
+      const flagPoleY = houseY - 85;
+      
+      // Pole
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillRect(flagPoleX - 2, flagPoleY - 45, 4, 45);
+
+      // Animated USA Flag (16-bit)
+      const wave = Math.sin(WasmModule.gameTimeSeconds * 8) * 4;
+      const fx = flagPoleX + 2;
+      const fy = flagPoleY - 45 + wave * 0.3;
+
+      // Red/White stripes
+      for (let s = 0; s < 7; s++) {
+        ctx.fillStyle = s % 2 === 0 ? '#ef4444' : '#ffffff';
+        ctx.fillRect(fx, fy + s * 4, 36 + wave, 4);
+      }
+      // Blue Canton
+      ctx.fillStyle = '#1d4ed8';
+      ctx.fillRect(fx, fy, 16, 16);
+      // Stars (pixels)
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(fx + 3, fy + 3, 3, 3);
+      ctx.fillRect(fx + 10, fy + 3, 3, 3);
+      ctx.fillRect(fx + 6, fy + 9, 3, 3);
+    }
+
+    /* ==========================================================================
+       Interactive Tool Decals & 6-Phase Pigeon Logic
+       ========================================================================== */
+    function drawFacadeModifications() {
+      // Seeds (Phase 1)
+      ctx.fillStyle = '#f59e0b';
+      WasmModule.birdSeeds.forEach(seed => {
+        if (!seed.eaten) {
+          ctx.fillRect(seed.x, seed.y, 4, 4);
+        }
+      });
+
+      // Graffiti Paint
+      WasmModule.graffitiStrokes.forEach(g => {
+        ctx.fillStyle = g.color;
+        ctx.fillRect(g.x - g.size / 2, g.y - g.size / 2, g.size, g.size);
+      });
+
+      // Slime Drops
+      WasmModule.slimeDrops.forEach(slime => {
+        if (slime.dripped < slime.maxDrip) {
+          slime.dripped += slime.dripSpeed;
+        }
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(slime.x - slime.radius, slime.y, slime.radius * 2, slime.radius * 2);
+        ctx.fillRect(slime.x - slime.radius * 0.5, slime.y, slime.radius, slime.dripped);
+      });
+
+      // Band-Aid Plasters
+      WasmModule.plasters.forEach(p => {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        // Bandage base
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(-20, -8, 40, 16);
+        ctx.strokeStyle = '#d97706';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-20, -8, 40, 16);
+        // Gauze pad
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-8, -6, 16, 12);
+        // Dots
+        ctx.fillStyle = '#ca8a04';
+        ctx.fillRect(-15, -3, 2, 2);
+        ctx.fillRect(13, -3, 2, 2);
+        ctx.restore();
+      });
+
+      // Snowballs & Melting Drips
+      WasmModule.snowballs.forEach(s => {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillRect(s.x - 3, s.y, 6, s.dripLength);
+      });
+
+      // Persistent Bird Poop Splatters (Phase 6)
+      WasmModule.poopSplatters.forEach(poop => {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(poop.x - 4, poop.y - 4, 8, 8);
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(poop.x - 2, poop.y - 2, 4, 4);
+      });
+    }
+
+    function updateDraw6PhasePigeons() {
+      WasmModule.pigeons.forEach(p => {
+        if (p.phase === 2) { // Phase 2: Flying to seeds
+          p.x += (p.targetX - p.x) * 0.06;
+          p.y += (p.targetY - p.y) * 0.06;
+          if (Math.hypot(p.targetX - p.x, p.targetY - p.y) < 5) {
+            p.phase = 3; // Phase 3: Land & Peck
+            p.timer = 0;
+          }
+        } else if (p.phase === 3) { // Phase 3: Peck seeds
+          p.timer++;
+          if (p.timer > 120) {
+            p.phase = 4; // Phase 4: Fly away
+            // Eat nearby seed
+            WasmModule.birdSeeds.forEach(s => {
+              if (Math.hypot(s.x - p.x, s.y - p.y) < 30) s.eaten = true;
+            });
+          }
+        } else if (p.phase === 4) { // Phase 4 & 5: Fly away & drop poop
+          p.y -= 3;
+          p.x += 2;
+          if (!p.poopDropped && p.y < canvas.height * 0.6) { // Phase 5: Dropping poop
+            p.poopDropped = true;
+            WasmModule.poopSplatters.push({ x: p.x, y: p.y + 20 }); // Phase 6: Persistent stain
+          }
+        }
+
+        // Draw Pigeon Sprite
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.fillStyle = '#64748b';
+        ctx.fillRect(-10, -6, 20, 12); // Body
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(6, -10, 8, 8); // Head
+        ctx.fillStyle = '#f97316';
+        ctx.fillRect(12, -8, 4, 3); // Beak
+
+        // Wing flapping
+        const flap = Math.sin(Date.now() * 0.02) > 0 ? -8 : 2;
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(-4, flap, 12, 6);
+        ctx.restore();
+      });
+    }
+
+    /* ==========================================================================
+       Detailed Trash Can & Spilled Items
+       ========================================================================== */
+    function drawSNESTrashCan() {
+      const canX = canvas.width - 140;
+      const groundY = canvas.height * 0.76;
+
+      ctx.save();
+      if (WasmModule.isTrashOverturned) {
+        ctx.translate(canX - 30, groundY + 10);
+        ctx.rotate(Math.PI / 2.3);
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(-35, -20, 70, 40);
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-35, -20, 70, 40);
+      } else {
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(canX - 25, groundY - 60, 50, 60);
+        ctx.fillStyle = '#64748b';
+        ctx.fillRect(canX - 28, groundY - 65, 56, 8);
+      }
+      ctx.restore();
+
+      // Render Spilled Waste Items with Visual Detail
+      WasmModule.trashItems.forEach(item => {
+        ctx.save();
+        ctx.translate(item.x, item.y);
+        ctx.rotate(item.rotation);
+
+        switch (item.type) {
+          case 'burger':
+            ctx.fillStyle = '#d97706'; ctx.fillRect(-8, -4, 16, 4); // Bun top
+            ctx.fillStyle = '#166534'; ctx.fillRect(-8, 0, 16, 2);  // Lettuce
+            ctx.fillStyle = '#78350f'; ctx.fillRect(-8, 2, 16, 4);  // Patty
+            break;
+          case 'can':
+            ctx.fillStyle = '#ef4444'; ctx.fillRect(-4, -8, 8, 16);
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(-4, -2, 8, 4);
+            break;
+          case 'paper': // Classified TOP SECRET Doc
+            ctx.fillStyle = '#f8fafc'; ctx.fillRect(-6, -8, 12, 16);
+            ctx.fillStyle = '#dc2626'; ctx.fillRect(-4, -4, 8, 3); // Red stamp
+            break;
+          case 'banana':
+            ctx.fillStyle = '#facc15';
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI);
+            ctx.fill();
+            break;
+          case 'pizza':
+            ctx.fillStyle = '#f59e0b';
+            ctx.beginPath();
+            ctx.moveTo(-8, 8); ctx.lineTo(8, 8); ctx.lineTo(0, -8);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#ef4444'; ctx.fillRect(-2, 2, 3, 3); // Pepperoni
+            break;
+        }
+        ctx.restore();
+      });
+    }
+
+    /* ==========================================================================
+       16-BIT HYPER-RECOGNIZABLE CHARACTER FACE SPRITES
+       ========================================================================== */
+    function updateDrawCameos() {
+      if (!WasmModule.cameoTriggered) return;
+
+      WasmModule.cameoActors.forEach(actor => {
+        actor.x += actor.speed;
+        if (actor.x > canvas.width + 100) actor.x = -100;
+
+        ctx.save();
+        ctx.translate(actor.x, actor.y);
+
+        if (actor.name === 'Snoop Dogg') {
+          // Tracksuit Body
+          ctx.fillStyle = '#166534'; ctx.fillRect(-12, -45, 24, 45); // Green Tracksuit
+          ctx.fillStyle = '#f8fafc'; ctx.fillRect(-2, -45, 4, 45);  // White Stripe
+
+          // Long Slim Neck & Face Base
+          ctx.fillStyle = '#78350f'; 
+          ctx.fillRect(-6, -55, 12, 12); // Neck
+          ctx.fillRect(-9, -74, 18, 20); // Head base
+
+          // Braids / Cornrows (Left & Right)
+          ctx.fillStyle = '#020617';
+          ctx.fillRect(-14, -76, 5, 30);
+          ctx.fillRect(9, -76, 5, 30);
+          // Hair beads
+          ctx.fillStyle = '#f59e0b';
+          ctx.fillRect(-14, -48, 5, 4);
+          ctx.fillRect(9, -48, 5, 4);
+
+          // Sunglasses (Iconic Snoop Shades)
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(-10, -70, 20, 6);
+          ctx.fillStyle = '#38bdf8';
+          ctx.fillRect(-8, -69, 5, 2); ctx.fillRect(3, -69, 5, 2); // Lens glint
+
+          // Goatee & Thin Moustache
+          ctx.fillStyle = '#020617';
+          ctx.fillRect(-5, -60, 10, 2); // Moustache
+          ctx.fillRect(-2, -58, 4, 8);  // Goatee chin
+
+          // Burning Joint with Glow & Smoke
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(5, -60, 14, 3); // Joint
+          ctx.fillStyle = '#ef4444'; ctx.fillRect(19, -60, 3, 3); // Ember
+          ctx.fillStyle = '#f59e0b'; ctx.fillRect(22, -61, 2, 5); // Glow
+
+          // Smoke Particle Trail
+          ctx.fillStyle = 'rgba(241, 245, 249, 0.7)';
+          const t = Date.now() * 0.005;
+          ctx.fillRect(24 + Math.sin(t) * 4, -66, 6, 6);
+          ctx.fillRect(30 + Math.cos(t) * 6, -76, 8, 8);
+          ctx.fillRect(36 + Math.sin(t * 1.5) * 8, -88, 12, 12);
+
+          // Cannabis Leaf Tag overhead
+          ctx.fillStyle = '#22c55e';
+          ctx.fillRect(-4, -92, 8, 8);
+
+        } else if (actor.name === 'Eminem') {
+          // Gray Hip-Hop Hoodie Body
+          ctx.fillStyle = '#475569'; ctx.fillRect(-13, -45, 26, 45);
+          ctx.fillStyle = '#334155'; ctx.fillRect(-11, -62, 22, 18); // Hood structure
+
+          // Pale Face Base
+          ctx.fillStyle = '#fde047'; ctx.fillRect(-8, -74, 16, 4); // Blonde Hair visible
+          ctx.fillStyle = '#fed7aa'; ctx.fillRect(-8, -70, 16, 16); // Face
+
+          // Black Cap Visor
+          ctx.fillStyle = '#020617';
+          ctx.fillRect(-12, -74, 24, 5);
+
+          // Serious "Slim Shady" Eyes & Mouth
+          ctx.fillStyle = '#020617';
+          ctx.fillRect(-6, -67, 4, 2); ctx.fillRect(2, -67, 4, 2); // Eyes
+          ctx.fillRect(-5, -60, 10, 2); // Firm mouth line
+
+          // Silver Chain
+          ctx.fillStyle = '#cbd5e1';
+          ctx.fillRect(-6, -44, 12, 3);
+
+          // Joint
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(4, -59, 12, 3);
+          ctx.fillStyle = '#ef4444'; ctx.fillRect(16, -59, 3, 3);
+        }
+        ctx.restore();
+      });
+    }
+
+    function updateDrawEndGameEvents() {
+      WasmModule.endGameActors.forEach(actor => {
+        actor.x += actor.speed;
+
+        ctx.save();
+        ctx.translate(actor.x, actor.y);
+
+        if (actor.type === 'trump') {
+          // Blue Suit Body & Extra-Long Red Tie
+          ctx.fillStyle = '#1e3a8a'; ctx.fillRect(-16, -50, 32, 50); // Suit
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(-4, -50, 8, 14);  // White shirt collar
+          ctx.fillStyle = '#dc2626'; ctx.fillRect(-3, -48, 6, 36);  // Signature extra-long tie
+
+          // Face Base
+          ctx.fillStyle = '#fed7aa'; ctx.fillRect(-10, -72, 20, 22);
+
+          // Signature Golden-Blonde Swoop Hair
+          ctx.fillStyle = '#fde047';
+          ctx.fillRect(-14, -84, 28, 14); // Hair body
+          ctx.fillRect(-16, -80, 8, 8);   // Left swoop
+          ctx.fillRect(8, -82, 8, 6);     // Right swoop puff
+
+          // Squinting Eyes & Open Screaming Mouth
+          ctx.fillStyle = '#b45309'; ctx.fillRect(-7, -70, 5, 2); ctx.fillRect(2, -70, 5, 2); // Eyebrows
+          ctx.fillStyle = '#020617'; ctx.fillRect(-6, -62, 12, 8); // Open mouth scream
+          ctx.fillStyle = '#ef4444'; ctx.fillRect(-4, -58, 8, 3);  // Tongue
+
+        } else if (actor.type === 'obama') {
+          // Tailored Black Suit & Blue Tie
+          ctx.fillStyle = '#0f172a'; ctx.fillRect(-13, -50, 26, 50); // Suit
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(-3, -50, 6, 12);  // Shirt collar
+          ctx.fillStyle = '#0284c7'; ctx.fillRect(-2, -48, 4, 24);  // Blue tie
+
+          // Oval Face & Distinctive Ears
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(-10, -72, 20, 22); // Face
+          ctx.fillRect(-14, -68, 4, 8);   // Left ear
+          ctx.fillRect(10, -68, 4, 8);    // Right ear
+
+          // Crisp Dark Haircut
+          ctx.fillStyle = '#020617'; ctx.fillRect(-10, -76, 20, 6);
+
+          // Expressive Eyes & Broad White Smile
+          ctx.fillStyle = '#020617'; ctx.fillRect(-6, -67, 3, 2); ctx.fillRect(3, -67, 3, 2);
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(-6, -60, 12, 4); // Signature smile
+
+          // TOP SECRET Trash Bomb
+          if (actor.hasBomb) {
+            ctx.fillStyle = '#dc2626'; ctx.fillRect(14, -35, 14, 14);
+            ctx.fillStyle = '#fef08a'; ctx.fillRect(16, -31, 10, 6);
+          }
+        }
+        ctx.restore();
+      });
+
+      // Explosions
+      WasmModule.explosions.forEach(exp => {
+        ctx.fillStyle = exp.color;
+        ctx.beginPath();
+        ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  </script>
+</body>
+</html>
